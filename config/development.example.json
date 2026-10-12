@@ -1,0 +1,5 @@
+{
+  "APP_DATA_MODE": "supabase",
+  "SUPABASE_URL": "",
+  "SUPABASE_PUBLISHABLE_KEY": ""
+}
