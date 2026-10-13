@@ -1,0 +1,5 @@
+project_id = "gachita"
+
+[functions.dispatch-keyword-push]
+# Only a trusted scheduler may call this worker. index.ts checks x-dispatch-secret.
+verify_jwt = false
