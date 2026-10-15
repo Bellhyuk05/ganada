@@ -12,6 +12,7 @@ import 'features/companion/models.dart';
 import 'features/companion/profile_photo_editor.dart';
 import 'features/companion/repositories.dart';
 import 'features/companion/screens.dart';
+import 'features/ride_flow/ride_flow_feature.dart';
 import 'ui/gachita_theme.dart';
 import 'ui/ride_pages.dart';
 
@@ -35,12 +36,14 @@ Future<void> main() async {
     );
     return;
   }
-  const teamFeatures = TeamFeatureBindings();
   try {
     await Supabase.initialize(
       url: AppConfig.supabaseUrl,
       publishableKey: AppConfig.supabaseKey,
     );
+    // 팀 기능 연결: F-04 참여 신청·승인, F-05 그룹 채팅, F-06 출발·도착 확인 (원교).
+    // 다른 기능은 attachRideFlow(client, TeamFeatureBindings(...))의 두 번째 인자로 이어 붙입니다.
+    final teamFeatures = attachRideFlow(Supabase.instance.client);
     runApp(
       SessionGate(                                                                          // 로그인 상태 확인
         authenticationBuilder: teamFeatures.authenticationBuilder,

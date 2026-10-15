@@ -201,6 +201,24 @@ class SupabaseCompanionRepository extends CompanionRepository {
         'user': {'id': m['user_id'], 'display_name': m['display_name']},
       });
     }
+    // F-04: the caller's own pending request, shown as "승인 기다리는 중".
+    // RLS (memberships_read_self) returns only the caller's own rows.
+    try {
+      final mine = await client
+          .from('ride_memberships')
+          .select('ride_id')
+          .eq('user_id', userId)
+          .eq('status', 'pending')
+          .inFilter('ride_id', rows.map((r) => r['id']).toList());
+      for (final m in mine) {
+        members.putIfAbsent(m['ride_id'] as String, () => []).add({
+          'status': 'pending',
+          'user': {'id': userId, 'display_name': '나'},
+        });
+      }
+    } catch (_) {
+      // Pending state is a convenience; the feed still loads without it.
+    }
     final rowsOfHosts = await client.rpc(
       'get_user_summaries',
       params: {
