@@ -7,6 +7,8 @@ import 'core/app_config.dart';
 import 'core/push_service.dart';
 import 'core/session_gate.dart';
 import 'core/team_features.dart';
+import 'features/auth/signup_flow.dart';
+import 'features/ride_create/ride_create_repository.dart';
 import 'features/companion/controller.dart';
 import 'features/companion/models.dart';
 import 'features/companion/profile_photo_editor.dart';
@@ -43,7 +45,15 @@ Future<void> main() async {
     );
     // 팀 기능 연결: F-04 참여 신청·승인, F-05 그룹 채팅, F-06 출발·도착 확인 (원교).
     // 다른 기능은 attachRideFlow(client, TeamFeatureBindings(...))의 두 번째 인자로 이어 붙입니다.
-    final teamFeatures = attachRideFlow(Supabase.instance.client);
+    // F-01 회원가입 · 로그인 (종혁): 로그아웃 상태에서 학교 메일 가입 화면을 보여 준다.
+    // F-02 동행팟 등록 (종혁): 팟 만들기 화면의 "팟 올리기".
+    final teamFeatures = attachRideFlow(
+      Supabase.instance.client,
+      TeamFeatureBindings(
+        authenticationBuilder: _signupScreen,
+        onCreateRide: RideCreateRepository(Supabase.instance.client).create,
+      ),
+    );
     runApp(
       SessionGate(                                                                          // 로그인 상태 확인
         authenticationBuilder: teamFeatures.authenticationBuilder,
@@ -61,6 +71,9 @@ Future<void> main() async {
     );
   }
 }
+
+// F-01 가입 시작 화면 (TeamFeatureBindings 가 const 라서 최상위 함수로 넘긴다)
+Widget _signupScreen(BuildContext context) => const SignupFlow();
 
 // 화면 종류 정의
 enum _Page {

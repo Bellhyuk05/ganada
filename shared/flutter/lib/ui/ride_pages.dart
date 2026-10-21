@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart' show CupertinoPicker;
 import 'package:flutter/material.dart';
 
 import '../core/team_features.dart';
@@ -1796,10 +1797,16 @@ class _CreateRidePageState extends State<_CreateRidePage> {
                   .map(
                     (value) => ChoiceChip(
                       label: Text(value),
-                      selected: _when.split(' ').first == value,
+                      selected: _day != null && _when.split(' ').first == value,
+                      // 이미 선택된 날짜를 다시 누르면 선택 취소
                       onSelected: _busy
                           ? null
-                          : (_) => setState(() {
+                          : (selected) => setState(() {
+                              if (!selected) {
+                                _day = null;
+                                _time = null;
+                                return;
+                              }
                               final index = _dateOptions.indexOf(value),
                                   now = DateTime.now();
                               _day = DateTime(
@@ -1807,32 +1814,23 @@ class _CreateRidePageState extends State<_CreateRidePage> {
                                 now.month,
                                 now.day + index,
                               );
+                              // 새 날짜에서 고를 수 없는 시각이면 비운다 (예: 오늘로 바꿨는데 이미 지난 시각)
+                              if (_time != null &&
+                                  !_departureSlots(_day!).contains(_time)) {
+                                _time = null;
+                              }
                             }),
                     ),
                   )
                   .toList(),
             ),
             const SizedBox(height: 14),
-            _FieldLabel(title: '출발 시각'),
-            Wrap(
-              spacing: 7,
-              children: ['18:00', '18:15', '18:30', '18:45']
-                  .map(
-                    (value) => ChoiceChip(
-                      label: Text(value),
-                      selected: _when.endsWith(value),
-                      onSelected: _busy
-                          ? null
-                          : (_) => setState(() {
-                              final parts = value.split(':');
-                              _time = TimeOfDay(
-                                hour: int.parse(parts[0]),
-                                minute: int.parse(parts[1]),
-                              );
-                            }),
-                    ),
-                  )
-                  .toList(),
+            _FieldLabel(title: '출발 시각 · 15분 단위'),
+            _DepartureTimePicker(
+              day: _day,
+              value: _time,
+              enabled: !_busy,
+              onChanged: (time) => setState(() => _time = time),
             ),
             const SizedBox(height: 14),
             _FieldLabel(title: '모집 인원 · 나 포함'),
@@ -1923,6 +1921,262 @@ class _PlaceButton extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// 선택한 날짜에 고를 수 있는 출발 시각 (15분 단위).
+/// 오늘이면 팟을 만드는 지금 시각 이후의 첫 15분부터, 다른 날이면 00:00 부터 23:45 까지.
+List<TimeOfDay> _departureSlots(DateTime day, [DateTime? now]) {
+  final current = now ?? DateTime.now();
+  final today = DateTime(current.year, current.month, current.day);
+  var startMinutes = 0;
+  if (DateTime(day.year, day.month, day.day) == today) {
+    // 지금보다 뒤인 가장 가까운 15분 (19:17 → 19:30, 19:30 → 19:45)
+    startMinutes = ((current.hour * 60 + current.minute) ~/ 15 + 1) * 15;
+  }
+  return [
+    for (var m = startMinutes; m < 24 * 60; m += 15)
+      TimeOfDay(hour: m ~/ 60, minute: m % 60),
+  ];
+}
+
+String _hhmm(TimeOfDay t) =>
+    '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+
+/// 출발 시각 고르기: 시각을 누르면 휠이 올라와 위아래 드래그로 15분씩 이동 · 키보드 직접 입력.
+class _DepartureTimePicker extends StatefulWidget {
+  const _DepartureTimePicker({
+    required this.day,
+    required this.value,
+    required this.onChanged,
+    this.enabled = true,
+  });
+  final DateTime? day;
+  final TimeOfDay? value;
+  final ValueChanged<TimeOfDay?> onChanged;
+  final bool enabled;
+  @override
+  State<_DepartureTimePicker> createState() => _DepartureTimePickerState();
+}
+
+class _DepartureTimePickerState extends State<_DepartureTimePicker> {
+  final _input = TextEditingController();
+  String? _notice;
+  bool _noticeIsError = false;
+
+  @override
+  void dispose() {
+    _input.dispose();
+    super.dispose();
+  }
+
+  void _applyTyped(List<TimeOfDay> slots) {
+    final digits = _input.text.replaceAll(RegExp(r'[^0-9]'), '');
+    if (digits.length < 3 || digits.length > 4) {
+      setState(() {
+        _notice = '예) 19:30 또는 1930 처럼 입력해 주세요.';
+        _noticeIsError = true;
+      });
+      return;
+    }
+    final hour = int.parse(digits.substring(0, digits.length - 2));
+    final minute = int.parse(digits.substring(digits.length - 2));
+    if (hour > 23 || minute > 59) {
+      setState(() {
+        _notice = '없는 시각이에요. 00:00 ~ 23:45 사이로 입력해 주세요.';
+        _noticeIsError = true;
+      });
+      return;
+    }
+    // 15분 단위가 아니면 다음 15분으로 맞춘다 (19:37 → 19:45)
+    var total = hour * 60 + minute;
+    final rounded = total % 15 != 0;
+    total = ((total + 14) ~/ 15) * 15;
+    final picked = total >= 24 * 60
+        ? null
+        : TimeOfDay(hour: total ~/ 60, minute: total % 60);
+    if (picked == null || !slots.contains(picked)) {
+      setState(() {
+        _notice = slots.isEmpty
+            ? '이 날짜는 고를 수 있는 시각이 없어요.'
+            : '${_hhmm(slots.first)} ~ ${_hhmm(slots.last)} 사이로 입력해 주세요.';
+        _noticeIsError = true;
+      });
+      return;
+    }
+    widget.onChanged(picked);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _input.clear();
+      _notice = rounded ? '15분 단위로 맞춰서 ${_hhmm(picked)}(으)로 정했어요.' : null;
+      _noticeIsError = false;
+    });
+  }
+
+  /// 아래에서 휠을 올려 15분 단위로 고른다. 위아래로 드래그하면 한 칸에 15분씩 바뀐다.
+  Future<void> _openWheel(List<TimeOfDay> slots) async {
+    FocusScope.of(context).unfocus();
+    final current = widget.value == null ? -1 : slots.indexOf(widget.value!);
+    var selected = current < 0 ? 0 : current;
+    final result = await showModalBottomSheet<_WheelResult>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Text(
+                '출발 시각',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: _ink),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                '위아래로 드래그하면 15분씩 바뀌어요.',
+                style: TextStyle(fontSize: 13, color: _muted),
+              ),
+              SizedBox(
+                height: 220,
+                child: CupertinoPicker(
+                  itemExtent: 44,
+                  scrollController: FixedExtentScrollController(initialItem: selected),
+                  onSelectedItemChanged: (i) => selected = i,
+                  children: [
+                    for (final slot in slots)
+                      Center(
+                        child: Text(
+                          _hhmm(slot),
+                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w600, color: _ink),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(sheetContext, const _WheelResult.clear()),
+                      style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                      child: const Text('선택 취소'),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => Navigator.pop(sheetContext, _WheelResult(slots[selected])),
+                      style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(48)),
+                      child: const Text('확인'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() => _notice = null);
+    widget.onChanged(result.time);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final day = widget.day;
+    if (day == null) {
+      return const Text('출발 날짜를 먼저 골라 주세요.', style: TextStyle(color: _muted));
+    }
+    final slots = _departureSlots(day);
+    if (slots.isEmpty) {
+      return const Text(
+        '오늘은 더 고를 수 있는 시각이 없어요. 내일 이후 날짜를 골라 주세요.',
+        style: TextStyle(color: _muted),
+      );
+    }
+    final value = widget.value;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            // 누르면 휠이 올라와서 위아래 드래그로 15분씩 고른다
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: widget.enabled ? () => _openWheel(slots) : null,
+                icon: const Icon(Icons.schedule),
+                label: Text(
+                  value == null ? '시각 고르기' : _hhmm(value),
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: value == null ? _muted : _primary,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(50),
+                  backgroundColor: Colors.white,
+                  side: BorderSide(color: value == null ? _line : _primary),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            // 키보드로 직접 입력
+            Expanded(
+              child: TextField(
+                controller: _input,
+                enabled: widget.enabled,
+                keyboardType: TextInputType.datetime,
+                textInputAction: TextInputAction.done,
+                maxLength: 5,
+                decoration: InputDecoration(
+                  counterText: '',
+                  isDense: true,
+                  hintText: '직접 입력 예) 19:30',
+                  filled: true,
+                  fillColor: Colors.white,
+                  border: const OutlineInputBorder(
+                    borderSide: BorderSide(color: _line),
+                    borderRadius: BorderRadius.all(Radius.circular(12)),
+                  ),
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.check),
+                    onPressed: widget.enabled ? () => _applyTyped(slots) : null,
+                  ),
+                ),
+                onSubmitted: (_) => _applyTyped(slots),
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            '${_hhmm(slots.first)} ~ ${_hhmm(slots.last)} 사이에서 고를 수 있어요.',
+            style: const TextStyle(fontSize: 12, color: _muted),
+          ),
+        ),
+        if (_notice != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              _notice!,
+              style: TextStyle(fontSize: 12, color: _noticeIsError ? _danger : _muted),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// 시각 휠 결과: 고른 시각 또는 선택 취소(null).
+class _WheelResult {
+  const _WheelResult(this.time);
+  const _WheelResult.clear() : time = null;
+  final TimeOfDay? time;
 }
 
 class _TripsPage extends StatelessWidget {

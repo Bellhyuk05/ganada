@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../features/auth/signup_flow.dart';
 import '../features/companion/repositories.dart';
 import '../features/companion/supabase_repository.dart';
 import '../ui/gachita_theme.dart';
@@ -31,7 +32,10 @@ class SessionGate extends StatelessWidget {
       }
       return KeyedSubtree(
         key: ValueKey(user.id),
-        child: builder(SupabaseCompanionRepository(Supabase.instance.client)),
+        // F-01: 코드 인증만 하고 3단계(닉네임·비밀번호·약관)를 끝내지 않은 사용자는 가입 화면에 붙잡아 둔다.
+        child: SignupCompletionGate(
+          child: builder(SupabaseCompanionRepository(Supabase.instance.client)),
+        ),
       );
     },
   );
